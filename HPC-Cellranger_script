@@ -1,0 +1,54 @@
+#!/bin/bash
+#SBATCH --job-name=GSM43_cellranger
+#SBATCH --output=z01.%x
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=mrb339@georgetown.edu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --time=90:00:00
+#SBATCH --mem=120G
+
+# ----------- CONFIGURE ----------------
+
+SAMPLE_ID="BCAE-AS025"
+FASTQ_DIR="/home/mrb339/${SAMPLE_ID}_fastqs"  # Avoid conflict with Cell Ranger output dir
+SRR_IDS=("SRR19391326" "SRR19391327")
+BUCKET="gs://gu-biology-pi-jh1659/hou"
+REFERENCE="/home/mrb339/refdata-gex-mm10-2020-A"
+CELLRANGER="/home/mrb339/cellranger-9.0.1/cellranger"
+
+# ----------- SETUP ----------------
+
+echo "Creating FASTQ folder $FASTQ_DIR..."
+mkdir -p "$FASTQ_DIR"
+
+echo "Copying FASTQ files from bucket for ${SRR_IDS[*]}..."
+for SRR in "${SRR_IDS[@]}"; do
+    gsutil -m cp "$BUCKET/$SRR/*.fastq.gz" "$FASTQ_DIR/"
+done
+
+echo "FASTQ download complete."
+
+# Determine sample prefix (e.g., BCAE-AS025-B-9-AS025-B-9)
+SAMPLE_PREFIX=$(basename "$(ls "$FASTQ_DIR"/*_R1_001.fastq.gz | head -n1)" | sed 's/_S[0-9]\+_L[0-9]\+_R[12]_001.fastq.gz//')
+
+if [[ -z "$SAMPLE_PREFIX" ]]; then
+  echo "Error: Could not determine sample prefix from FASTQs in $FASTQ_DIR"
+  exit 1
+fi
+
+echo "Detected FASTQ sample name: $SAMPLE_PREFIX"
+
+# ----------- RUN CELL RANGER ----------------
+echo "Running Cell Ranger count for $SAMPLE_ID..."
+"$CELLRANGER" count \
+  --id="$SAMPLE_ID" \
+  --transcriptome="$REFERENCE" \
+  --fastqs="$FASTQ_DIR" \
+  --sample="$SAMPLE_PREFIX" \
+  --localcores=1 \
+  --localmem=120 \
+  --create-bam true
+
+echo "Done! Output is in $SAMPLE_ID/outs/"
