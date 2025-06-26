@@ -1,0 +1,8 @@
+# Pre-R
+Got FASTQ files from NIH GEO website.
+Moved from Huang lab bucket on the HPC to CellRanger (see script for details)
+Used Cellranger Cell Ranger Count v9.0.1. See Geo.xslx for how I grouped each sample.
+Downloaded into R.
+
+#R
+##QC Vln plot
