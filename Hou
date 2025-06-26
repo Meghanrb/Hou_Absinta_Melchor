@@ -5,4 +5,4 @@ Used Cellranger Cell Ranger Count v9.0.1. See Geo.xslx for how I grouped each sa
 Downloaded into R.
 
 #R
-##QC Vln plot
+##QC Vln plot is in this folder as "QC_vlnplot"
