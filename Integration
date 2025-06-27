@@ -1,0 +1,28 @@
+## THis is how I used integrate in R
+## Did this in terminal 
+
+GUHPC2TPILT412:~ meghanbullard$ bash
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+bash-3.2$ wget ftp://ftp.ensembl.org/pub/release-114/gtf/homo_sapiens/Homo_sapiens.GRCh38.114.gtf.gz
+bash: wget: command not found
+bash-3.2$ Error: unexpected symbol in "wget ftp"
+bash: Error:: command not found
+bash-3.2$ wget ftp://ftp.ensembl.org/pub/release-114/gtf/homo_sapiens/Homo_sapiens.GRCh38.114.gtf.gz
+bash: wget: command not found
+bash-3.2$ Error: unexpected symbol in "wget ftp"
+bash: Error:: command not found
+bash-3.2$ curl -O ftp://ftp.ensembl.org/pub/release-114/gtf/homo_sapiens/Homo_sapiens.GRCh38.114.gtf.gz
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 61.2M  100 61.2M    0     0  1345k      0  0:00:46  0:00:46 --:--:-- 1682k
+bash-3.2$ curl -0 ftp://ftp.ensembl.org/pub/current_gtf/mus_musculus/Mus_musculus.GRCm39.*.gtf.gz
+curl: (78) The file does not exist
+bash-3.2$ curl -O ftp://ftp.ensembl.org/pub/current_gtf/mus_musculus/Mus_musculus.GRCm39.114.gtf.gz
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 38.9M  100 38.9M    0     0  1380k      0  0:00:28  0:00:28 --:--:-- 1276k
+bash-3.2$ gunzip Mus_musculus.GRCm39.114.gtf.gz
+bash-3.2$ gunzip Homo_sapiens.GRCh38.114.gtf.gz
