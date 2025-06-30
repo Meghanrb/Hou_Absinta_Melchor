@@ -1,5 +1,246 @@
-## THis is how I used integrate in R
-## Did this in terminal 
+## THis is how I used integrate in R---
+title: "Absinta, Hou, and Melchor reanalysis"
+author: "Meghan R. Bullard"
+date: "2025-06-26"
+output: html_document
+---
+
+As of 6-26-25 these data are preliminary because these RDS files are NOT coming from raw FASTQ files. I need the PC in order to do that and it is currently not working.
+
+```{r packages}
+library(Seurat)
+library(scCustomize)
+library(SCpubr)
+library(ggplot2)
+library(cowplot)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(reshape2)
+library(RColorBrewer)
+library(purrr)
+library(here)
+library(patchwork)
+library(ggpubr)
+library(RColorBrewer)
+library(Matrix)
+library("xtable")
+#library(presto)
+library(org.Mm.eg.db)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+library(RecordLinkage)
+library(biomaRt)
+```
+
+ 
+```{load datasets}
+absinta <- readRDS("~/Integration/Absinta21filtered_normalized_clustered.rds")
+
+
+hou <- readRDS("~/Integration/Merged_Seurat_AllCells_Annotated_May2025.rds")
+
+melchor <- readRDS("~/Integration/LPCTimeline_AllSamples_AllCells_noBatchcorr.rds")
+```
+
+```{integrate datasets from Jurado Github}
+#https://github.com/MarianoRuzJurado/OrthoIntegrate
+
+#install.packages("devtools")
+library("devtools")
+devtools::install_github("MarianoRuzJurado/OrthoIntegrate", force = TRUE)
+library(OrthoIntegrate) # for integration
+BiocManager::install("pwalign")
+library(pwalign)
+
+#The following is working from premade seurat objects. Can do preseurat as well.
+
+########## THe GTF files have too many NAs so have to do the following to clean up the GTF files ###########
+
+BiocManager::install("rtracklayer", ask = FALSE, update = FALSE)
+
+library(rtracklayer)
+gtf_human <- import("/Users/meghanbullard/Library/CloudStorage/Box-Box/HUANG_LAB_CENTRAL/Lab members/MeghanB./AbsintaHouMelchor_reanalysis/Integration/Homo_sapiens.GRCh38.114.gtf")
+gtf_human_genes <- gtf_human[mcols(gtf_human)$type == "gene" & !is.na(mcols(gtf_human)$gene_name)]
+genome(gtf_human_genes) <- "GRCh38"
+
+export(gtf_human_genes, "/Users/meghanbullard/Library/CloudStorage/Box-Box/HUANG_LAB_CENTRAL/Lab members/MeghanB./AbsintaHouMelchor_reanalysis/Integration/Homo_sapiens.GRCh38.114.genes.pc.filtered.gtf")
+
+# Repeat for mouse
+# Import mouse GTF
+gtf_mouse <- import("/Users/meghanbullard/Library/CloudStorage/Box-Box/HUANG_LAB_CENTRAL/Lab members/MeghanB./AbsintaHouMelchor_reanalysis/Integration/Mus_musculus.GRCm39.114.gtf")
+
+# Extract gene_name metadata
+gene_names_mouse <- mcols(gtf_mouse)$gene_name
+
+# Count missing gene names
+sum(is.na(gene_names_mouse))
+
+# Indices of missing gene_name rows
+which_na_mouse <- which(is.na(gene_names_mouse))
+
+# View a few rows with missing gene names
+head(gtf_mouse[which_na_mouse])
+
+# Filter for features of type 'gene' with valid gene_name
+gtf_mouse_genes <- gtf_mouse[mcols(gtf_mouse)$type == "gene" & !is.na(mcols(gtf_mouse)$gene_name)]
+
+# Confirm result
+length(gtf_mouse_genes)
+
+# Assign genome label
+genome(gtf_mouse_genes) <- "GRCm39"
+
+# Export filtered mouse GTF
+export(gtf_mouse_genes, "/Users/meghanbullard/Library/CloudStorage/Box-Box/HUANG_LAB_CENTRAL/Lab members/MeghanB./AbsintaHouMelchor_reanalysis/Integration/Mus_musculus.GRCm39.114.genes.pc.filtered.gtf")
+############################################################################################################
+
+library(Biostrings)
+library(pwalign)
+library(stringr)
+library(mygene)
+library(rentrez)
+mat <- pwalign::nucleotideSubstitutionMatrix(match = 1, mismatch = 0, baseOnly = FALSE, type = "DNA")
+
+clean_sequence <- function(seq) {
+  seq <- toupper(seq)
+  seq <- gsub("[^ATCGN]", "N", seq)  # Replace any char NOT A,T,C,G,N with N
+  return(seq)
+}
+
+patched_nucleotide_matching <- function(mGene, replacement, OrthologueList_allHuman, species.1, species.2, alignment_type) {
+  out <- try(mygene::queryMany(mGene, scopes = "symbol", fields = c("entrezgene", "uniprot"), species = species.1), silent = TRUE)
+  outm <- try(mygene::queryMany(replacement, scopes = "symbol", fields = c("entrezgene", "uniprot"), species = species.2), silent = TRUE)
+
+  if (!("try-error" %in% class(outm)) && !("try-error" %in% class(out))) {
+    linked_seq_ids <- rentrez::entrez_link(dbfrom = "gene", id = out$entrezgene, db = "nuccore")
+    linked_transcripts <- linked_seq_ids$links$gene_nuccore_refseqrna
+
+    if (!is.null(linked_transcripts)) {
+      all_recs <- rentrez::entrez_fetch(db = "nuccore", id = linked_transcripts, rettype = "fasta")
+      sequences <- unlist(strsplit(all_recs, split = ">"))
+      sequences.orth <- sequences[grep("NM", sequences)]
+      if (identical(sequences.orth, character(0))) {
+        sequences.orth <- sequences[grep("NR", sequences)]
+      }
+      if (length(sequences.orth) > 1) {
+        sequences.orth <- sequences.orth[grep("transcript variant 1", sequences.orth)]
+      }
+      sequences.orth <- unlist(strsplit(sequences.orth, split = "\n"))
+      Non.variant.h <- sequences.orth[2:(length(sequences.orth) - 1)]
+      Non.variant.h <- paste0(Non.variant.h, collapse = "")
+      Non.variant.h <- clean_sequence(Non.variant.h)
+    }
+
+    if (!is.null(outm$entrezgene)) {
+      Sys.sleep(0.1)
+      linked_seq_ids <- rentrez::entrez_link(dbfrom = "gene", id = outm$entrezgene, db = "nuccore")
+      linked_transcripts.m <- linked_seq_ids$links$gene_nuccore_refseqrna
+    } else {
+      linked_transcripts.m <- NULL
+    }
+
+    if (!is.null(linked_transcripts.m)) {
+      all_recs <- rentrez::entrez_fetch(db = "nuccore", id = linked_transcripts.m, rettype = "fasta")
+      sequences <- unlist(strsplit(all_recs, split = ">"))
+      sequences.orth <- sequences[grep("NM", sequences)]
+      if (identical(sequences.orth, character(0))) {
+        sequences.orth <- sequences[grep("NR", sequences)]
+      }
+      if (identical(sequences.orth, character(0))) {
+        sequences.orth <- sequences[grep("XM", sequences)]
+      }
+      if (identical(sequences.orth, character(0))) {
+        sequences.orth <- sequences[grep("XR", sequences)]
+      }
+
+      orthologues.sequences <- as.list(sequences.orth)
+      for (i in seq_along(orthologues.sequences)) {
+        orthologues.seq <- unlist(strsplit(orthologues.sequences[[i]], split = "\n"))
+        orthologues.seq.2 <- orthologues.seq[2:length(orthologues.seq)]
+        orth_seq_clean <- clean_sequence(paste0(orthologues.seq.2, collapse = ""))
+        orthologues.sequences[[i]] <- orth_seq_clean
+        names(orthologues.sequences)[i] <- orthologues.seq[1]
+      }
+    }
+
+    if (!is.null(linked_transcripts.m) && !is.null(linked_transcripts)) {
+      local.Align.list <- list()
+      mat <- pwalign::nucleotideSubstitutionMatrix(match = 1, mismatch = 0, baseOnly = FALSE, type = "DNA")
+
+      if (alignment_type == "global") {
+        for (k in seq_along(orthologues.sequences)) {
+          localAlign <- pwalign::pairwiseAlignment(
+            Biostrings::AAString(Non.variant.h),
+            Biostrings::AAString(orthologues.sequences[[k]]),
+            type = "global",
+            substitutionMatrix = mat,
+            gapOpening = 5,
+            gapExtension = 2
+          )
+          local.Align.list[[k]] <- localAlign@score
+          names(local.Align.list)[k] <- stringr::str_match(names(orthologues.sequences)[k], "[(](.*?)[)]")[, 2]
+        }
+      }
+
+      if (alignment_type == "local") {
+        for (k in seq_along(orthologues.sequences)) {
+          localAlign <- pwalign::pairwiseAlignment(
+            Biostrings::AAString(Non.variant.h),
+            Biostrings::AAString(orthologues.sequences[[k]]),
+            type = "local",
+            substitutionMatrix = mat,
+            gapOpening = 5,
+            gapExtension = 2
+          )
+          local.Align.list[[k]] <- localAlign@score
+          names(local.Align.list)[k] <- stringr::str_match(names(orthologues.sequences)[k], "[(](.*?)[)]")[, 2]
+        }
+      }
+
+      local.Align.list <- local.Align.list[order(-unlist(local.Align.list))]
+      replacement.hit <- names(local.Align.list[1])
+      j <- 1
+      while (replacement.hit %in% OrthologueList_allHuman$MouseGene && !is.na(replacement.hit)) {
+        replacement.hit <- names(local.Align.list[j + 1])
+        j <- j + 1
+      }
+      OrthologueList_allHuman[OrthologueList_allHuman$HGNC.symbol == mGene, ]$MouseGene <- replacement.hit
+    }
+  } else {
+    linked_transcripts <- NA
+  }
+
+  return(list(OrthologueList_allHuman, linked_transcripts))
+}
+
+
+ns <- asNamespace("OrthoIntegrate")
+unlockBinding("nucleotide.matching", ns)
+assign("nucleotide.matching", patched_nucleotide_matching, envir = ns)
+#lockBinding("nucleotide.matching", ns)
+
+
+
+
+
+
+
+Orthologue.DF <- BuildOrthologues(GTF.1 = "/Users/meghanbullard/Library/CloudStorage/Box-Box/HUANG_LAB_CENTRAL/Lab members/MeghanB./AbsintaHouMelchor_reanalysis/Integration/Homo_sapiens.GRCh38.114.genes.pc.filtered.gtf",
+                                  GTF.2 = "/Users/meghanbullard/Library/CloudStorage/Box-Box/HUANG_LAB_CENTRAL/Lab members/MeghanB./AbsintaHouMelchor_reanalysis/Integration/Mus_musculus.GRCm39.114.genes.pc.filtered.gtf",
+                                  species.1 = "human",
+                                  species.2 = "mouse")
+
+setwd("/Users/meghanbullard/Library/CloudStorage/Box-Box/HUANG_LAB_CENTRAL/Lab members/MeghanB./AbsintaHouMelchor_reanalysis/Integration")
+# I strongly recommend to save the Orthologue.DF file for future use.
+write.csv(Orthologue.DF, file = "Orthologue_DF.csv", row.names = FALSE)
+
+
+```
+
+
+## Did this in terminal to get the datasets for orthologue integration.
 
 GUHPC2TPILT412:~ meghanbullard$ bash
 
@@ -26,3 +267,137 @@ bash-3.2$ curl -O ftp://ftp.ensembl.org/pub/current_gtf/mus_musculus/Mus_musculu
 100 38.9M  100 38.9M    0     0  1380k      0  0:00:28  0:00:28 --:--:-- 1276k
 bash-3.2$ gunzip Mus_musculus.GRCm39.114.gtf.gz
 bash-3.2$ gunzip Homo_sapiens.GRCh38.114.gtf.gz
+
+#6-28-25 edited
+
+library(Seurat)
+library(Matrix)
+
+# 1. Load datasets
+absinta <- readRDS("~/Integration/Absinta21filtered_normalized_clustered.rds")
+melchor <- readRDS("~/Integration/LPCTimeline_AllSamples_AllCells_noBatchcorr.rds")
+hou <- readRDS("~/Integration/Merged_Seurat_AllCells_Annotated_May2025.rds")
+
+# 2. Load Orthologue table
+Orthologue.DF <- read.csv("~/Integration/Orthologue_DF.csv")
+Orthologue.DF$human <- toupper(Orthologue.DF$human)
+Orthologue.DF$mouse <- toupper(Orthologue.DF$mouse)
+
+# 3. Rebuild all Seurat objects with uppercased gene names, keep metadata
+counts_absinta <- GetAssayData(absinta, layer = "counts")
+rownames(counts_absinta) <- toupper(rownames(counts_absinta))
+absinta_upper <- CreateSeuratObject(counts = counts_absinta, meta.data = absinta@meta.data)
+
+counts_melchor <- GetAssayData(melchor, layer = "counts")
+rownames(counts_melchor) <- toupper(rownames(counts_melchor))
+melchor_upper <- CreateSeuratObject(counts = counts_melchor, meta.data = melchor@meta.data)
+
+counts_hou <- GetAssayData(hou, layer = "counts")
+rownames(counts_hou) <- toupper(rownames(counts_hou))
+hou_upper <- CreateSeuratObject(counts = counts_hou, meta.data = hou@meta.data)
+
+# 4. Filter orthologues present in all datasets
+Orthologue.DF.filtered <- Orthologue.DF[
+  Orthologue.DF$human %in% rownames(absinta_upper) &
+  Orthologue.DF$mouse %in% rownames(melchor_upper) &
+  Orthologue.DF$mouse %in% rownames(hou_upper),
+]
+
+cat("Orthologues after filtering:", nrow(Orthologue.DF.filtered), "\n")
+
+# 5. Subset Seurat objects to orthologues
+subset_absinta <- subset(absinta_upper, features = Orthologue.DF.filtered$human)
+subset_melchor <- subset(melchor_upper, features = Orthologue.DF.filtered$mouse)
+subset_hou <- subset(hou_upper, features = Orthologue.DF.filtered$mouse)
+
+# 6. Normalize and find variable features
+subset_absinta <- NormalizeData(subset_absinta)
+subset_absinta <- FindVariableFeatures(subset_absinta)
+
+subset_melchor <- NormalizeData(subset_melchor)
+subset_melchor <- FindVariableFeatures(subset_melchor)
+
+subset_hou <- NormalizeData(subset_hou)
+subset_hou <- FindVariableFeatures(subset_hou)
+
+# 7. Rename mouse gene names to human orthologues
+mouse2human <- setNames(Orthologue.DF.filtered$human, Orthologue.DF.filtered$mouse)
+
+rename_genes <- function(seurat_obj, mapping) {
+  old_names <- rownames(seurat_obj)
+  new_names <- ifelse(old_names %in% names(mapping), mapping[old_names], old_names)
+  rownames(seurat_obj) <- new_names
+  return(seurat_obj)
+}
+
+subset_melchor <- rename_genes(subset_melchor, mouse2human)
+subset_hou <- rename_genes(subset_hou, mouse2human)
+
+# 8. Scale and PCA (required for RPCA integration)
+subset_absinta <- ScaleData(subset_absinta)
+subset_absinta <- RunPCA(subset_absinta)
+saveRDS(subset_absinta, "absintasubset.rds")
+
+subset_melchor <- ScaleData(subset_melchor)
+subset_melchor <- RunPCA(subset_melchor)
+saveRDS(subset_melchor, "melchorsubset.rds")
+
+subset_hou <- ScaleData(subset_hou)
+subset_hou <- RunPCA(subset_hou)
+saveRDS(subset_hou, "housubset.rds")
+
+# 9. Integration
+subset_absinta <- readRDS("absintasubset.rds")
+subset_melchor <- readRDS("melchorsubset.rds")
+subset_hou <- readRDS("housubset.rds")
+
+seurat_list <- list(subset_absinta, subset_melchor, subset_hou)
+
+anchors <- FindIntegrationAnchors(
+  object.list = seurat_list,
+  reduction = "rpca"
+)
+
+integrated_seurat <- IntegrateData(anchorset = anchors)
+
+# 10. Save final integrated object
+saveRDS(integrated_seurat, file = "~/Integration/Integrated_v3.rds")
+
+
+DefaultAssay(integrated_seurat) <- "integrated"
+
+# Scale & PCA on integrated data
+integrated_seurat <- ScaleData(integrated_seurat)
+integrated_seurat <- RunPCA(integrated_seurat)
+
+### on 6-30-25 I changed this from what it was
+
+integrated_seurat <- readRDS("/home/exouser/Integration/Integrated_v4.rds")
+
+# UMAP or t-SNE
+integrated_seurat <- RunUMAP(integrated_seurat, dims = 1:10)
+
+# Clustering
+integrated_seurat <- FindNeighbors(integrated_seurat, dims = 1:10)
+integrated_seurat <- FindClusters(integrated_seurat, resolution = 0.5)
+
+### okay annotation ##
+
+install.packages('devtools')
+devtools::install_github('immunogenomics/presto')
+library("presto")
+
+cluster_markers <- FindAllMarkers(integrated_seurat, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+library(dplyr)
+
+filtered_markers <- cluster_markers %>%
+    group_by(cluster) %>%
+    filter(avg_log2FC > 1) %>%
+    arrange(cluster, desc(avg_log2FC))
+
+
+
+saveRDS(integrated_seurat, file = "~/Integration/Integrated_v5.rds")
+
+```
