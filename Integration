@@ -5,7 +5,9 @@ date: "2025-06-26"
 output: html_document
 ---
 
-As of 6-26-25 these data are preliminary because these RDS files are NOT coming from raw FASTQ files. I need the PC in order to do that and it is currently not working.
+##This is in the jetstream_integration.rwd file
+
+As of 7-1-25 these data are preliminary because these RDS files are NOT coming from raw FASTQ files. I need the PC in order to do that and it is currently not working.
 
 ```{r packages}
 library(Seurat)
